@@ -1,0 +1,177 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Institute {
+  id        String    @id @default(cuid())
+  name      String
+  code      String    @unique
+  createdAt DateTime  @default(now())
+  programs  Program[]
+  students  Student[]
+  uploads   Upload[]
+}
+
+model Program {
+  id          String    @id @default(cuid())
+  instituteId String
+  institute   Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  name        String
+  code        String
+  createdAt   DateTime  @default(now())
+  branches    Branch[]
+  students    Student[]
+  uploads     Upload[]
+
+  @@unique([instituteId, code])
+}
+
+model Branch {
+  id        String     @id @default(cuid())
+  programId String
+  program   Program    @relation(fields: [programId], references: [id], onDelete: Cascade)
+  name      String
+  code      String
+  createdAt DateTime   @default(now())
+  divisions Division[]
+  students  Student[]
+  subjects  Subject[]
+  uploads   Upload[]
+
+  @@unique([programId, code])
+}
+
+model Division {
+  id           String    @id @default(cuid())
+  branchId     String
+  branch       Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  name         String // e.g. "3B"
+  semester     Int // e.g. 3
+  academicYear String // e.g. "2026-27"
+  createdAt    DateTime  @default(now())
+  uploads      Upload[]
+
+  @@unique([branchId, name, semester, academicYear])
+}
+
+model Student {
+  id                 String                    @id @default(cuid())
+  enrollmentNumber   String                    @unique
+  name               String
+  instituteId        String?
+  institute          Institute?                @relation(fields: [instituteId], references: [id], onDelete: SetNull)
+  programId          String?
+  program            Program?                  @relation(fields: [programId], references: [id], onDelete: SetNull)
+  branchId           String?
+  branch             Branch?                   @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  currentDivision    String?
+  firstSeenAt        DateTime                  @default(now())
+  lastDataReceivedAt DateTime?
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+  attendanceRecords  AttendanceRecord[]
+  snapshotPresences  StudentSnapshotPresence[]
+
+  @@index([enrollmentNumber])
+  @@index([instituteId, branchId])
+}
+
+model Subject {
+  id                      String                    @id @default(cuid())
+  name                    String
+  code                    String?
+  branchId                String?
+  branch                  Branch?                   @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  semester                Int?
+  createdAt               DateTime                  @default(now())
+  attendanceSubjectRecords AttendanceSubjectRecord[]
+
+  @@unique([name, semester])
+}
+
+model Upload {
+  id                   String                    @id @default(cuid())
+  originalFilename     String
+  storagePath          String
+  fileHash             String
+  instituteId          String?
+  institute            Institute?                @relation(fields: [instituteId], references: [id], onDelete: SetNull)
+  programId            String?
+  program              Program?                  @relation(fields: [programId], references: [id], onDelete: SetNull)
+  branchId             String?
+  branch               Branch?                   @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  divisionId           String?
+  division             Division?                 @relation(fields: [divisionId], references: [id], onDelete: SetNull)
+  divisionName         String // Preserved literal name e.g. "3B"
+  semester             Int
+  academicYear         String // e.g. "2026-27"
+  periodStart          DateTime?
+  periodEnd            DateTime?
+  detectedStudentCount Int                       @default(0)
+  detectedSubjectCount Int                       @default(0)
+  processingStatus     String                    @default("uploaded") // uploaded, processing, completed, completed_with_warnings, failed
+  processingResult     String? // JSON containing matched, new, missing, warnings
+  uploadedBy           String                    @default("Admin")
+  uploadedAt           DateTime                  @default(now())
+  processedAt          DateTime?
+  createdAt            DateTime                  @default(now())
+  attendanceRecords    AttendanceRecord[]
+  snapshotPresences    StudentSnapshotPresence[]
+
+  @@index([instituteId, branchId, divisionName, semester, academicYear])
+  @@index([fileHash])
+}
+
+model AttendanceRecord {
+  id                String                    @id @default(cuid())
+  uploadId          String
+  upload            Upload                    @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  studentId         String
+  student           Student                   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  overallConducted  Int                       @default(0)
+  overallPresent    Int                       @default(0)
+  overallAbsent     Int                       @default(0)
+  overallPercentage Float                     @default(0)
+  statusInSnapshot  String                    @default("present") // present, new, missing
+  createdAt         DateTime                  @default(now())
+  subjectRecords    AttendanceSubjectRecord[]
+
+  @@unique([uploadId, studentId])
+  @@index([studentId])
+  @@index([overallPercentage])
+}
+
+model AttendanceSubjectRecord {
+  id                 String           @id @default(cuid())
+  attendanceRecordId String
+  attendanceRecord   AttendanceRecord @relation(fields: [attendanceRecordId], references: [id], onDelete: Cascade)
+  subjectId          String
+  subject            Subject          @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  conducted          Int              @default(0)
+  present            Int              @default(0)
+  absent             Int              @default(0)
+  percentage         Float            @default(0)
+  hasDiscrepancy     Boolean          @default(false)
+  rawPercentage      Float?
+  createdAt          DateTime         @default(now())
+
+  @@unique([attendanceRecordId, subjectId])
+}
+
+model StudentSnapshotPresence {
+  id             String   @id @default(cuid())
+  studentId      String
+  student        Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  uploadId       String
+  upload         Upload   @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  presenceStatus String // "present", "new", "missing"
+  createdAt      DateTime @default(now())
+
+  @@unique([studentId, uploadId])
+  @@index([uploadId, presenceStatus])
+}
